@@ -6,7 +6,8 @@
 ## If exact location is required, functions will be: `sim$.mods$<moduleName>$FunctionName`.
 defineModule(sim, list(
   name = "WBI_vegReclass",
-  description = "the aim of this module is to make a reclassification of cohortData into predefined vegetation classes for WBI project",
+  description = paste("the aim of this module is to make a reclassification of cohortData into predefined vegetation classes for
+  six subpregions whitin the WBI project"),
   keywords = c("WB", "habitat types"),
   authors =  c(
     person("Alex M", "Chubaty", email= "achubaty@for-cast.ca", role = "aut"),
@@ -18,20 +19,23 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = deparse(list("README.txt", "WBI_vegReclass.Rmd")),
-  reqdPkgs = list("googledrive", "data.table", "raster", "reproducible"),
+  reqdPkgs = list("googledrive", "data.table", "raster", "reproducible", "LandR"),
   parameters = rbind(
-    defineParameter("reclassTime", "numeric", 0, NA, NA,
-                    "Describes the simulation time at which the reclassify event should occur."),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
                     "Describes the simulation time at which the first plot event should occur."),
     defineParameter(".plotInterval", "numeric", NA, NA, NA,
                     "Describes the simulation time interval between plot events."),
+    defineParameter("reclassTime", "numeric", 1, NA, NA,
+                    "Describes the simulation time at which the reclassify event should occur."),
     defineParameter(".saveInitialTime", "numeric", NA, NA, NA,
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events."),
+    defineParameter("studyAreaName", "character", "bcr6BC", NA, NA,
+                    paste("study area name for WB project, options are: bcr6BC, bcr6AB",
+                          "bcr6SK,YK, bcr6NWT,bcr6MB")),
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
                           "This is generally intended for data-type modules, where stochasticity",
@@ -40,20 +44,26 @@ defineModule(sim, list(
   inputObjects = bindrows(
     expectsInput("cohortData",  "data.table",
                  desc = paste("Columns: B, pixelGroup, speciesCode, Indicating several features",
-                              "about ages and current vegetation of stand"),
-    expectsInput("studyArea", "SpatialPoligonsDataFrame",
-                              desc = paste("Polygon to use as the study area"),
-                              sourceURL = "https://drive.google.com/open?id=18XPcOKeQdty102dYHizKH3ZPE187BiYi"),
-    expectsInput(objectName = "rasterToMatch", objectClass = "RasterLayer",
+                              "about ages and current vegetation of stand")),
+    #expectsInput("studyArea", "SpatialPoligonsDataFrame",
+     #                         desc = paste("Polygon to use as the study area"),
+      #                        sourceURL = "https://drive.google.com/open?id=18XPcOKeQdty102dYHizKH3ZPE187BiYi"),
+    expectsInput("rasterToMatch", objectClass = "RasterLayer",
                               desc = "RasterToMatch" ),
-    expectsInput(objectName = "pixelGroupMap", objectClass = "RasterLayer", desc = NA, sourceURL = NA)
+    expectsInput("sppEquiv", objectClass = "data.table",
+                              desc = "xxxxxxRasterToMatch" ),
+    expectsInput("sppEquivCol", objectClass = "character",
+                              desc = "xxxxxxRasterToMatch" ),
+    expectsInput("pixelGroupMap", objectClass = "RasterLayer",
+                 desc = NA, sourceURL = NA)
     ),
+
   outputObjects = bindrows(
     createsOutput("vegTypeMap", "Rasterlayer",
                   desc = paste("reclassification of biomass map into pre-defined",
                                "vegetation classes for the WBI project"))
   )
-)))
+))
 
 ## event types
 #   - type `init` is required for initialization
@@ -62,54 +72,65 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
-      ### check for more detailed object dependencies:
-      ### (use `checkObject` or similar)
-
-      # do stuff for this event
+      browser()
       sim <- Init(sim)
 
       # schedule future event(s)
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "WBI_vegReclass", "plot")
+      sim <- scheduleEvent(sim, P(sim)$reclassTime, "WBI_vegReclass", "reclass")
+     # sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "WBI_vegReclass", "plot")
       #sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "WBI_vegReclass", "save")
     },
     reclass = {
-      #sim$groupAgeMap  <- ageReclass(cohortData = sim$cohortData) 
-      vegTypeTable <- LandR::vegTypeMapGenerator(pixelCohortData = sim$pixelCohortData,
-                                                 vegLeadingProportion = 0.8,
-                                                 mixedType = 2, sppEquiv = sim$sppEquiv,
-                                                 pixelGroupMap = sim$pixelGroupMap,
-                                                 sppEquivCol = sppEquivCol, pixelGroupColName = "pixelGroup")
-      
-      
+
+      #sim$groupAgeMap  <- ageReclass(cohortData = sim$cohortData)
+      ## Add the pixel number to the cohortData
+      pixelCohortData <- LandR::addNoPixel2CohortData(sim$cohortData,
+                                                      sim$pixelGroupMap,
+                                                      doAssertion = getOption("LandR.assertions", TRUE))
+
+      vegTypeTable <- LandR::vegTypeGenerator(pixelCohortData, vegLeadingProportion = 0,
+                                              mixedType = 2, sppEquiv = sim$sppEquiv,
+                                              sppEquivCol = "WB", pixelGroupColName = "pixelGroup")
+
       ## subset the pixelCohortData and create a new column with the sum of Biomass(B) & relB
       ## per pixelGroup and RelB per pixelGroup & speciesCode
       vegTypeTable[, sumB := sum(B), by = .(pixelGroup)]
       vegTypeTable[, relB := sum(B)/sumB, by = .(pixelGroup, speciesCode)]
       vegTypeTable[is.na(relB) & sumB == 0, relB := 0]
-      
-      ## check for missing values in B 
-      if (any(is.na(vegTypeTable2$relB))) {
+browser()
+      ## check for missing values in B
+      if (any(is.na(vegTypeTable$relB))) {
         stop("Missing values in relative Biomass")
       }
-      
+
       ## subset to a smaller DT
       vegTypes <- unique(vegTypeTable[B > 0, .(pixelGroup,leading, speciesCode, relB, sumB)])
-      sim$vegTypes[, vegClass:= convertToVegType(.SD, pureCutoff = 0.8,
+
+      DT <- data.table::copy(vegTypes)
+      data.table::setkeyv(DT, cols = "pixelGroup")
+
+      vegTypes[, vegClass:= convertToVegType(.SD, pureCutoff = 0.8,
                                                  deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
                                                  coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
-                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading2")]
-      
-      sim$vegType <- convertToVegType (cohortData = sim$cohortData)
-      sim$VegTypeMap <- rasterisereduce(dt =sim$vegType, r = sim$rasterToMatch, 
-                                        val =  )
-      
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
+
+      vegTypesCD <- vegTypes[, list(vegType = as.factor(vegClass)), by = "pixelGroup"]
+
+      vegTypesRas <- rasterizeReduced(reduced = vegTypesCD,
+                                      fullRaster = sim$pixelGroupMap,
+                                      mapcode = "pixelGroup", newRasterCols ="vegType")
+
+
+      sim$vegTypes <- vegTypes
+
+   sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
     },
-    
+
     plot = {
       yearSim <- paste0("Year", time(sim))
-      sim$habitatMap[[yearSim]] <- ## TODO: BUILD A RASTERSTACK FUNCTION FOR ALL YEARS 
-        
-        sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
+      sim$habitatMap[[yearSim]] <- ## TODO: BUILD A RASTERSTACK FUNCTION FOR ALL YEARS
+
+   sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
     },
   warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
                   "\' in module \'", current(sim)[1, "moduleName", with = FALSE], "\'", sep = ""))
@@ -122,6 +143,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
 
 ### template initialization
 Init <- function(sim) {
+
   # # ! ----- EDIT BELOW ----- ! #
 
   # ! ----- STOP EDITING ----- ! #
@@ -190,22 +212,22 @@ Event2 <- function(sim) {
   #cacheTags <- c(currentModule(sim), "function:.inputObjects") ## uncomment this if Cache is being used
   dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
   message(currentModule(sim), ": using dataPath '", dPath, "'.")
-  if (!suppliedElsewhere("studyArea", sim)) {
-    message("study area not supplied. Using Ecodistrict 644")
-    
-    sim$studyArea <- Cache(prepInputs, url = extractURL(objectName = "studyArea", sim = sim),
-                           destinationPath = getPaths()$inputPath,
-                           filename2 = "studyArea", overwrite = TRUE)
-  }
-  if(!suppliedElsewhere("rasterToMatch", sim)){
-    message("rasterToMatch not supplied. Generating from LCC05") 
-    sim$rasterToMatch <- Cache(LandR::prepInputsLCC,
-                               year = 2005,
-                               destinationPath = Paths$inputPath,
-                               studyArea = sim$studyArea,
-                               filename2 = "RTM")
-  }
-  
+  # if (!suppliedElsewhere("studyArea", sim)) {
+  #   message("study area not supplied. Using Ecodistrict 644")
+  #
+  #   sim$studyArea <- Cache(prepInputs, url = extractURL(objectName = "studyArea", sim = sim),
+  #                          destinationPath = getPaths()$inputPath,
+  #                          filename2 = "studyArea", overwrite = TRUE)
+  # }
+  # if(!suppliedElsewhere("rasterToMatch", sim)){
+  #   message("rasterToMatch not supplied. Generating from LCC05")
+  #   sim$rasterToMatch <- Cache(LandR::prepInputsLCC,
+  #                              year = 2005,
+  #                              destinationPath = Paths$inputPath,
+  #                              studyArea = sim$studyArea,
+  #                              filename2 = "RTM")
+  #}
+
   return(invisible(sim))
 }
 
