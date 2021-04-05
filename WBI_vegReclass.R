@@ -45,11 +45,6 @@ defineModule(sim, list(
     expectsInput("cohortData",  "data.table",
                  desc = paste("Columns: B, pixelGroup, speciesCode, Indicating several features",
                               "about ages and current vegetation of stand")),
-    #expectsInput("studyArea", "SpatialPoligonsDataFrame",
-     #                         desc = paste("Polygon to use as the study area"),
-      #                        sourceURL = "https://drive.google.com/open?id=18XPcOKeQdty102dYHizKH3ZPE187BiYi"),
-    expectsInput("rasterToMatch", objectClass = "RasterLayer",
-                              desc = "RasterToMatch" ),
     expectsInput("sppEquiv", objectClass = "data.table",
                               desc = "xxxxxxRasterToMatch" ),
     expectsInput("sppEquivCol", objectClass = "character",
@@ -72,22 +67,19 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
-      browser()
-      sim <- Init(sim)
-
+   #   browser()
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$reclassTime, "WBI_vegReclass", "reclass")
-     # sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "WBI_vegReclass", "plot")
+      #sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "WBI_vegReclass", "plot")
       #sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "WBI_vegReclass", "save")
     },
-    reclass = {
 
-      #sim$groupAgeMap  <- ageReclass(cohortData = sim$cohortData)
+    reclass = {
       ## Add the pixel number to the cohortData
       pixelCohortData <- LandR::addNoPixel2CohortData(sim$cohortData,
                                                       sim$pixelGroupMap,
                                                       doAssertion = getOption("LandR.assertions", TRUE))
-
+      ## Create leading species column as the species with the highest B
       vegTypeTable <- LandR::vegTypeGenerator(pixelCohortData, vegLeadingProportion = 0,
                                               mixedType = 2, sppEquiv = sim$sppEquiv,
                                               sppEquivCol = "WB", pixelGroupColName = "pixelGroup")
@@ -97,7 +89,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       vegTypeTable[, sumB := sum(B), by = .(pixelGroup)]
       vegTypeTable[, relB := sum(B)/sumB, by = .(pixelGroup, speciesCode)]
       vegTypeTable[is.na(relB) & sumB == 0, relB := 0]
-browser()
+
       ## check for missing values in B
       if (any(is.na(vegTypeTable$relB))) {
         stop("Missing values in relative Biomass")
@@ -114,100 +106,42 @@ browser()
                                                  coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
                    by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
 
-      vegTypesCD <- vegTypes[, list(vegType = as.factor(vegClass)), by = "pixelGroup"]
+      vegTypes$vegClass <- as.factor(vegTypes$vegClass)
 
-      vegTypesRas <- rasterizeReduced(reduced = vegTypesCD,
+      vegTypesCD <- vegTypes[, list(vegType = unique(vegClass)), by = "pixelGroup"]
+      browser()
+      vegTypesRas <- SpaDES.tools::rasterizeReduced(reduced = vegTypesCD,
                                       fullRaster = sim$pixelGroupMap,
                                       mapcode = "pixelGroup", newRasterCols ="vegType")
 
+      sim$vegTypesRas <- vegTypesRas
 
-      sim$vegTypes <- vegTypes
+      ##subset the pixelCohortData and create a new column with the max age per pixelGroup
+      newAgeCD <- vegTypeTable[, list(ageMax = max(age)), by = "pixelGroup"]  ## TODO: BIOMASS WEIGHTED MEAN ?
+
+      ## create a new  RasterLayer of Age reclassified
+      ageRas <- rasterizeReduced(reduced = newAgeCD,
+                                      fullRaster = sim$pixelGroupMap,
+                                      mapcode = "pixelGroup", newRasterCols = "ageMax")
+      sim$ageRas <- ageRas
+
+      return(sim$vegTypesRas)
 
    sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
     },
 
-    plot = {
-      yearSim <- paste0("Year", time(sim))
-      sim$habitatMap[[yearSim]] <- ## TODO: BUILD A RASTERSTACK FUNCTION FOR ALL YEARS
+   # plot = {
+    # Plot(sim$vegTypeMap) ##I don't think this is necessary ASK STEVE
 
-   sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
-    },
+   #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
+    # },
   warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
                   "\' in module \'", current(sim)[1, "moduleName", with = FALSE], "\'", sep = ""))
   )
   return(invisible(sim))
 }
 
-## event functions
-#   - keep event functions short and clean, modularize by calling subroutines from section below.
-
-### template initialization
-Init <- function(sim) {
-
-  # # ! ----- EDIT BELOW ----- ! #
-
-  # ! ----- STOP EDITING ----- ! #
-
-  return(invisible(sim))
-}
-
-### template for save events
-Save <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  # do stuff for this event
-  sim <- saveFiles(sim)
-
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
-}
-
-### template for plot events
-plotFun <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  # do stuff for this event
-  sampleData <- data.frame("TheSample" = sample(1:10, replace = TRUE))
-  Plots(sampleData, fn = ggplotFn)
-
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
-}
-
-### template for your event1
-Event1 <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  # THE NEXT TWO LINES ARE FOR DUMMY UNIT TESTS; CHANGE OR DELETE THEM.
-  # sim$event1Test1 <- " this is test for event 1. " # for dummy unit test
-  # sim$event1Test2 <- 999 # for dummy unit test
-
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
-}
-
-### template for your event2
-Event2 <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  # THE NEXT TWO LINES ARE FOR DUMMY UNIT TESTS; CHANGE OR DELETE THEM.
-  # sim$event2Test1 <- " this is test for event 2. " # for dummy unit test
-  # sim$event2Test2 <- 777  # for dummy unit test
-
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
-}
-
 .inputObjects <- function(sim) {
-  # Any code written here will be run during the simInit for the purpose of creating
-  # any objects required by this module and identified in the inputObjects element of defineModule.
-  # This is useful if there is something required before simulation to produce the module
-  # object dependencies, including such things as downloading default datasets, e.g.,
-  # downloadData("LCC2005", modulePath(sim)).
-  # Nothing should be created here that does not create a named object in inputObjects.
-  # Any other initiation procedures should be put in "init" eventType of the doEvent function.
-  # Note: the module developer can check if an object is 'suppliedElsewhere' to
-  # selectively skip unnecessary steps because the user has provided those inputObjects in the
-  # simInit call, or another module will supply or has supplied it. e.g.,
-  # if (!suppliedElsewhere('defaultColor', sim)) {
-  #   sim$map <- Cache(prepInputs, extractURL('map')) # download, extract, load file from url in sourceURL
-  # }
 
   #cacheTags <- c(currentModule(sim), "function:.inputObjects") ## uncomment this if Cache is being used
   dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
