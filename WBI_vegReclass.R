@@ -19,7 +19,7 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = deparse(list("README.txt", "WBI_vegReclass.Rmd")),
-  reqdPkgs = list("googledrive", "data.table", "raster", "reproducible", "LandR"),
+  reqdPkgs = list("SpaDES.tools", "googledrive", "data.table", "raster", "reproducible", "LandR"),
   parameters = rbind(
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
@@ -43,20 +43,23 @@ defineModule(sim, list(
   ),
   inputObjects = bindrows(
     expectsInput("cohortData",  "data.table",
-                 desc = paste("Columns: B, pixelGroup, speciesCode, Indicating several features",
-                              "about ages and current vegetation of stand")),
-    expectsInput("sppEquiv", objectClass = "data.table",
-                              desc = "xxxxxxRasterToMatch" ),
-    expectsInput("sppEquivCol", objectClass = "character",
-                              desc = "xxxxxxRasterToMatch" ),
-    expectsInput("pixelGroupMap", objectClass = "RasterLayer",
-                 desc = NA, sourceURL = NA)
+                 desc = paste("Initial community table, created from available biomass (g/m2"),
+                             ("age and species cover data, as well as ecozonation information"),
+                             ("Columns: B, pixelGroup, speciesCode")),
+    expectsInput("sppEquiv", "data.table",
+                 desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
+    expectsInput("sppEquivCol", "character",
+                 desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
+    expectsInput("pixelGroupMap", "RasterLayer",
+                 desc = "Initial community map that has mapcodes match initial community table")
     ),
 
   outputObjects = bindrows(
-    createsOutput("vegTypeMap", "Rasterlayer",
-                  desc = paste("reclassification of biomass map into pre-defined",
-                               "vegetation classes for the WBI project"))
+    createsOutput("vegTypeMap", "RasterLayer",
+                  desc = paste("reclassification of cohort data into pre-defined",
+                               "vegetation classes for the WBI project"),
+                  "ageRas", "RasterLayer",
+                  desc = paste("ageMap raster"))
   )
 ))
 
@@ -82,7 +85,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       ## Create leading species column as the species with the highest B
       vegTypeTable <- LandR::vegTypeGenerator(pixelCohortData, vegLeadingProportion = 0,
                                               mixedType = 2, sppEquiv = sim$sppEquiv,
-                                              sppEquivCol = "WB", pixelGroupColName = "pixelGroup")
+                                              sppEquivCol = sim$sppEquivCol, pixelGroupColName = "pixelGroup")
 
       ## subset the pixelCohortData and create a new column with the sum of Biomass(B) & relB
       ## per pixelGroup and RelB per pixelGroup & speciesCode
@@ -109,7 +112,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       vegTypes$vegClass <- as.factor(vegTypes$vegClass)
 
       vegTypesCD <- vegTypes[, list(vegType = unique(vegClass)), by = "pixelGroup"]
-      browser()
+
       vegTypesRas <- SpaDES.tools::rasterizeReduced(reduced = vegTypesCD,
                                       fullRaster = sim$pixelGroupMap,
                                       mapcode = "pixelGroup", newRasterCols ="vegType")
@@ -120,12 +123,14 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       newAgeCD <- vegTypeTable[, list(ageMax = max(age)), by = "pixelGroup"]  ## TODO: BIOMASS WEIGHTED MEAN ?
 
       ## create a new  RasterLayer of Age reclassified
-      ageRas <- rasterizeReduced(reduced = newAgeCD,
-                                      fullRaster = sim$pixelGroupMap,
-                                      mapcode = "pixelGroup", newRasterCols = "ageMax")
+      ageRas <- SpaDES.tools::rasterizeReduced(reduced = newAgeCD,
+                                 fullRaster = sim$pixelGroupMap,
+                                 mapcode = "pixelGroup", newRasterCols = "ageMax")
+      browser()
       sim$ageRas <- ageRas
 
-      return(sim$vegTypesRas)
+      return(list(sim$vegTypesRas,
+             sim$ageRas))
 
    sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
     },
