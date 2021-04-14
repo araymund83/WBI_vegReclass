@@ -46,6 +46,9 @@ defineModule(sim, list(
                  desc = paste("Initial community table, created from available biomass (g/m2"),
                              ("age and species cover data, as well as ecozonation information"),
                              ("Columns: B, pixelGroup, speciesCode")),
+    expectsInput("rstLCC", "RasterLayer",
+                 desc = paste("Initial conditions from LCC 2005 ",
+                              "XXXXX")),
     expectsInput("sppEquiv", "data.table",
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
     expectsInput("sppEquivCol", "character",
@@ -58,6 +61,8 @@ defineModule(sim, list(
     createsOutput("vegTypeMap", "RasterLayer",
                   desc = paste("reclassification of cohort data into pre-defined",
                                "vegetation classes for the WBI project"),
+                  "nonForestedMap", "RasterLayer",
+                  desc = paste("reclassification of non forested pixels"),
                   "ageRas", "RasterLayer",
                   desc = paste("ageMap raster"))
   )
@@ -118,6 +123,21 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
                                       mapcode = "pixelGroup", newRasterCols ="vegType")
 
       sim$vegTypesRas <- vegTypesRas
+
+
+      nonForesReclassTB <- Cache(prepInputs, url = paste0("https://drive.google.com/file/",
+                                                          "d/17IGN5vphimjWjIfyF7XLkUeD-ze",
+                                                          "Kruc1/view?usp=sharing"),
+                                 destinationPath = Paths$inputPath,
+                                 fun = "data.table::fread",
+                                 userTags = "WBnonForest_LCC05")
+
+      reclassMatrix <- usefulFuns::makeReclassifyMatrix(table = nonForesReclassTB,
+                                                        originalCol = "LCC05_Class",
+                                                        reclassifiedTo = "nonForest_Class")
+      nonForestRas <- raster::reclassify(x = rstLCC, rcl = reclassMatrix[, -1])
+
+
 
       ##subset the pixelCohortData and create a new column with the max age per pixelGroup
       newAgeCD <- vegTypeTable[, list(ageMax = max(age)), by = "pixelGroup"]  ## TODO: BIOMASS WEIGHTED MEAN ?
