@@ -13,10 +13,7 @@ knitr::opts_chunk$set(echo = TRUE, results = "hold")
 
 # Overview
 
-Provide an overview of what the module does / how to use the module.
-
-Module documentation should be written so that others can use your module.
-This is a template for module documentation, and should be changed to reflect your module.
+The aim of this module is to reclassify LandR cells 
 
 ## R Markdown
 

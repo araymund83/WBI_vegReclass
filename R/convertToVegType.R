@@ -51,4 +51,11 @@ convertToVegType <- function(DT, pureCutoff = 0.8,
   DT[speciesCode %in% sppToMatch, relB] %>% sum()
 }
 
+if (studyAreaName == "bcr6NWT"){
 
+
+
+
+
+
+}

@@ -41,11 +41,12 @@ defineModule(sim, list(
                           "This is generally intended for data-type modules, where stochasticity",
                           "and time are not relevant"))
   ),
+
   inputObjects = bindrows(
     expectsInput("cohortData",  "data.table",
-                 desc = paste("Initial community table, created from available biomass (g/m2"),
-                             ("age and species cover data, as well as ecozonation information"),
-                             ("Columns: B, pixelGroup, speciesCode")),
+                 desc = paste0("Initial community table, created from available biomass (g/m2)",
+                              "age and species cover data, as well as ecozonation information",
+                              "Columns: B, pixelGroup, speciesCode")),
     expectsInput("rstLCC", "RasterLayer",
                  desc = paste("Initial conditions from LCC 2005 ",
                               "XXXXX")),
@@ -55,18 +56,19 @@ defineModule(sim, list(
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
     expectsInput("pixelGroupMap", "RasterLayer",
                  desc = "Initial community map that has mapcodes match initial community table")
-    ),
+  ),
 
   outputObjects = bindrows(
-    createsOutput("vegTypeMap", "RasterLayer",
-                  desc = paste("reclassification of cohort data into pre-defined",
-                               "vegetation classes for the WBI project"),
-                  "nonForestedMap", "RasterLayer",
-                  desc = paste("reclassification of non forested pixels"),
-                  "ageRas", "RasterLayer",
-                  desc = paste("ageMap raster"))
+    createsOutput("forestTypeMap", "RasterLayer",
+                  desc = paste0("reclassification of cohort data into pre-defined",
+                               "vegetation classes for the WBI project")),
+    createsOutput("nonForestedMap", "RasterLayer",
+                  desc = "reclassification of non forested pixels"),
+    createsOutput("ageRas", "RasterLayer",
+                   desc = paste0("ageMap raster"))
   )
 ))
+
 
 ## event types
 #   - type `init` is required for initialization
@@ -123,19 +125,20 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
                                       mapcode = "pixelGroup", newRasterCols ="vegType")
 
       sim$vegTypesRas <- vegTypesRas
-
+      browser()
 
       nonForesReclassTB <- Cache(prepInputs, url = paste0("https://drive.google.com/file/",
                                                           "d/17IGN5vphimjWjIfyF7XLkUeD-ze",
                                                           "Kruc1/view?usp=sharing"),
                                  destinationPath = Paths$inputPath,
                                  fun = "data.table::fread",
-                                 userTags = "WBnonForest_LCC05")
+                                 userTags = "ABnonForest_LCC05")
 
       reclassMatrix <- usefulFuns::makeReclassifyMatrix(table = nonForesReclassTB,
                                                         originalCol = "LCC05_Class",
                                                         reclassifiedTo = "nonForest_Class")
-      nonForestRas <- raster::reclassify(x = rstLCC, rcl = reclassMatrix[, -1])
+      nonForestRas <- raster::reclassify(x = sim$rstLCC, rcl = reclassMatrix[, -1])
+      sim$nonForestRas <- nonForestRas
 
 
 
@@ -146,10 +149,10 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       ageRas <- SpaDES.tools::rasterizeReduced(reduced = newAgeCD,
                                  fullRaster = sim$pixelGroupMap,
                                  mapcode = "pixelGroup", newRasterCols = "ageMax")
-      browser()
+
       sim$ageRas <- ageRas
 
-      return(list(sim$vegTypesRas,
+      return(list(sim$vegTypesRas, sim$nonForestRas,
              sim$ageRas))
 
    sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
