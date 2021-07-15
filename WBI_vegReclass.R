@@ -45,8 +45,10 @@ defineModule(sim, list(
   inputObjects = bindrows(
     expectsInput("cohortData",  "data.table",
                  desc = paste0("Initial community table, created from available biomass (g/m2)",
-                              "age and species cover data, as well as ecozonation information",
-                              "Columns: B, pixelGroup, speciesCode")),
+                               "age and species cover data, as well as ecozonation information",
+                               "Columns: B, pixelGroup, speciesCode")),
+    expectsInput("pixelGroupMap", "RasterLayer",
+                 desc = "Initial community map that has mapcodes match initial community table"),
     expectsInput("rstLCC", "RasterLayer",
                  desc = paste("Initial conditions from LCC 2005 ",
                               "XXXXX")),
@@ -54,18 +56,18 @@ defineModule(sim, list(
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
     expectsInput("sppEquivCol", "character",
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
-    expectsInput("pixelGroupMap", "RasterLayer",
-                 desc = "Initial community map that has mapcodes match initial community table")
+    expectsInput("studyArea", "SpatialPolygonsDataFrame",
+                 desc = "study area used for reporting")
   ),
 
   outputObjects = bindrows(
     createsOutput("forestTypeMap", "RasterLayer",
                   desc = paste0("reclassification of cohort data into pre-defined",
-                               "vegetation classes for the WBI project")),
+                                "vegetation classes for the WBI project")),
     createsOutput("nonForestedMap", "RasterLayer",
                   desc = "reclassification of non forested pixels"),
     createsOutput("ageRas", "RasterLayer",
-                   desc = paste0("ageMap raster"))
+                  desc = paste0("ageMap raster"))
   )
 ))
 
@@ -77,7 +79,6 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
-   #   browser()
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$reclassTime, "WBI_vegReclass", "reclass")
       #sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "WBI_vegReclass", "plot")
@@ -85,12 +86,36 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
     },
 
     reclass = {
+      browser()
+      bcrSApixels<- raster::extract(sim$pixelGroupMap,
+                                    sim$studyArea,
+                                    cellnumbers = TRUE, df = TRUE)
+
+      bcrSApixels$ID <- as.factor(bcrSApixels$ID)
+      sim$studyArea$BCR <- as.factor(sim$studyArea$BCR)
+      levels(bcrSApixels$ID) <- levels(sim$studyArea$BCR)
+
+      names(bcrSApixels) <- c("polyID", "pixelID", "pixelGroupMap")
+
+      cohortData <- as.data.table(biomassMaps2011MB$cohortData)
+      studyAreaID <- unique(bcrSApixels$polyID)
+
+      bcr6pixels <- bcrSApixels[bcrSApixels$polyID == 6, ]
+      bcr7pixels <- bcrSApixels[bcrSApixels$polyID == 7, ]
+      bcr8pixels <- bcrSApixels[bcrSApixels$polyID == 8, ]
+
+
+
+
+      cohortDataShort <- cohortData[cohortData$pixelGroup %in% bcr6pixels$pixelGroupMap]
+
+
       ## Add the pixel number to the cohortData
-      pixelCohortData <- LandR::addNoPixel2CohortData(sim$cohortData,
-                                                      sim$pixelGroupMap,
-                                                      doAssertion = getOption("LandR.assertions", TRUE))
+      pixelCohortDataShort <- LandR::addPixels2CohortData(cohortDataShort,
+                                                          sim$pixelGroupMap,
+                                                          doAssertion = getOption("LandR.assertions", TRUE))
       ## Create leading species column as the species with the highest B
-      vegTypeTable <- LandR::vegTypeGenerator(pixelCohortData, vegLeadingProportion = 0,
+      vegTypeTable <- LandR::vegTypeGenerator(pixelCohortDataShort, vegLeadingProportion = 0,
                                               mixedType = 2, sppEquiv = sim$sppEquiv,
                                               sppEquivCol = sim$sppEquivCol, pixelGroupColName = "pixelGroup")
 
@@ -110,19 +135,26 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
 
       DT <- data.table::copy(vegTypes)
       data.table::setkeyv(DT, cols = "pixelGroup")
-
+browser()
+      if(P(sim)$studyAreaName == "bcr6ABBC") {
       vegTypes[, vegClass:= convertToVegType(.SD, pureCutoff = 0.8,
-                                                 deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
-                                                 coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
-                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
+                                             deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
+                                             coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
+               by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
+      } else if (P(sim)$studyAreaName == "bcrMB"){ # TODO: change to BCR6 MB)
+        vegTypes[, vegClass := convertToVegTypeBCR6MBSK(.SD, pureCutoff =0.8,
+                                                        deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
+                                                        coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
+                 by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
+      }
 
       vegTypes$vegClass <- as.factor(vegTypes$vegClass)
 
       vegTypesCD <- vegTypes[, list(vegType = unique(vegClass)), by = "pixelGroup"]
 
       vegTypesRas <- SpaDES.tools::rasterizeReduced(reduced = vegTypesCD,
-                                      fullRaster = sim$pixelGroupMap,
-                                      mapcode = "pixelGroup", newRasterCols ="vegType")
+                                                    fullRaster = sim$pixelGroupMap,
+                                                    mapcode = "pixelGroup", newRasterCols ="vegType")
 
       sim$vegTypesRas <- vegTypesRas
       browser()
@@ -147,23 +179,23 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
 
       ## create a new  RasterLayer of Age reclassified
       ageRas <- SpaDES.tools::rasterizeReduced(reduced = newAgeCD,
-                                 fullRaster = sim$pixelGroupMap,
-                                 mapcode = "pixelGroup", newRasterCols = "ageMax")
+                                               fullRaster = sim$pixelGroupMap,
+                                               mapcode = "pixelGroup", newRasterCols = "ageMax")
 
       sim$ageRas <- ageRas
 
       return(list(sim$vegTypesRas, sim$nonForestRas,
-             sim$ageRas))
+                  sim$ageRas))
 
-   sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
+      sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
     },
 
-   # plot = {
+    # plot = {
     # Plot(sim$vegTypeMap) ##I don't think this is necessary ASK STEVE
 
-   #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
+    #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
     # },
-  warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
+    warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
                   "\' in module \'", current(sim)[1, "moduleName", with = FALSE], "\'", sep = ""))
   )
   return(invisible(sim))
@@ -192,5 +224,3 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
 
   return(invisible(sim))
 }
-
-
