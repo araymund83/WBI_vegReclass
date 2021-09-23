@@ -27,50 +27,58 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first plot event should occur."),
     defineParameter(".plotInterval", "numeric", NA, NA, NA,
                     "Describes the simulation time interval between plot events."),
+    defineParameter("bcr", "character", NA, NA, NA,
+                    paste("BCR region used for subdivision of the WB study area when",
+                          "using reclassifying land cover classes.Options are:",
+                          "bcr4", "bcr6", "bcr7", "bcr8",
+                          "bcr4BC", "bcr6BC", "bcr6AB", "bcr6SK", "bcr7SK", "bcr8SK",
+                          "bcr6MB", "bcr7MB", "bcr8MB", "bcr4NT", "bcr6NT", "bcr7NT",
+                          "bcr7NU", "bcr4YU")),
     defineParameter("reclassTime", "numeric", 1, NA, NA,
                     "Describes the simulation time at which the reclassify event should occur."),
     defineParameter(".saveInitialTime", "numeric", NA, NA, NA,
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events."),
-    defineParameter("studyAreaName", "character", "bcr6BC", NA, NA,
-                    paste("study area name for WB project, options are: bcr6BC, bcr6AB",
-                          "bcr6SK,YK, bcr6NWT,bcr6MB")),
+    # defineParameter("studyAreaName", "character", "bcr6BC", NA, NA,
+    #                 paste("study area name for WB project, options are: bcr6BC, bcr6AB",
+    #                       "bcr6SK,YK, bcr6NWT,bcr6MB")),
+    defineParameter("studyArea", "SpatialPolygonsDataFrame", "BC", NA, NA,
+                    paste("study area shapefile for each of the provinces in WB. Options are: BC, AB",
+                          "SK", "MB", "NT", "NU", "YU")),
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
                           "This is generally intended for data-type modules, where stochasticity",
                           "and time are not relevant"))
   ),
-
   inputObjects = bindrows(
     expectsInput("cohortData",  "data.table",
-                 desc = paste0("Initial community table, created from available biomass (g/m2)",
-                               "age and species cover data, as well as ecozonation information",
-                               "Columns: B, pixelGroup, speciesCode")),
-    expectsInput("pixelGroupMap", "RasterLayer",
-                 desc = "Initial community map that has mapcodes match initial community table"),
-    expectsInput("rstLCC", "RasterLayer",
-                 desc = paste("Initial conditions from LCC 2005 ",
-                              "XXXXX")),
+                 desc = paste("Initial community table, created from available biomass (g/m2"),
+                             ("age and species cover data, as well as ecozonation information"),
+                             ("Columns: B, pixelGroup, speciesCode")),
+    # expectsInput("rstLCC", "RasterLayer",
+    #              desc = paste("Initial conditions from LCC 2005 ",
+    #                           "XXXXX")),
     expectsInput("sppEquiv", "data.table",
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
-    expectsInput("sppEquivCol", "character",
+    expectsInput("sppEquiv", "data.table",
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
-    expectsInput("studyArea", "SpatialPolygonsDataFrame",
-                 desc = "study area used for reporting")
-  ),
+    expectsInput("studyArea", objectClass = "SpatialPolygonsDataFrame",
+                  desc = "study area used for REPORTING. This shapefile is created in the WBI preamble module"),
+    expectsInput("pixelGroupMap", "RasterLayer",
+                 desc = "Initial community map that has mapcodes match initial community table")
+    ),
 
   outputObjects = bindrows(
-    createsOutput("forestTypeMap", "RasterLayer",
-                  desc = paste0("reclassification of cohort data into pre-defined",
-                                "vegetation classes for the WBI project")),
-    createsOutput("nonForestedMap", "RasterLayer",
-                  desc = "reclassification of non forested pixels"),
-    createsOutput("ageRas", "RasterLayer",
-                  desc = paste0("ageMap raster"))
+    createsOutput("vegTypesMap", "RasterLayer",
+                  desc = paste("reclassification of cohort data into pre-defined",
+                               "vegetation classes for the WBI project"),
+                  "nonForestedMap", "RasterLayer",
+                  desc = paste("reclassification of non forested pixels"),
+                  "ageRas", "RasterLayer",
+                  desc = paste("ageMap raster"))
   )
 ))
-
 
 ## event types
 #   - type `init` is required for initialization
@@ -85,39 +93,36 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       #sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "WBI_vegReclass", "save")
     },
 
-    reclass = {
-      browser()
+   reclass = {
+     browser()
       bcrSApixels<- raster::extract(sim$pixelGroupMap,
                                     sim$studyArea,
                                     cellnumbers = TRUE, df = TRUE)
 
+      ##assign the BCR number to the ID
       bcrSApixels$ID <- as.factor(bcrSApixels$ID)
       sim$studyArea$BCR <- as.factor(sim$studyArea$BCR)
       levels(bcrSApixels$ID) <- levels(sim$studyArea$BCR)
 
-      names(bcrSApixels) <- c("polyID", "pixelID", "pixelGroupMap")
-
-      cohortData <- as.data.table(biomassMaps2011MB$cohortData)
-      studyAreaID <- unique(bcrSApixels$polyID)
-
-      bcr6pixels <- bcrSApixels[bcrSApixels$polyID == 6, ]
-      bcr7pixels <- bcrSApixels[bcrSApixels$polyID == 7, ]
-      bcr8pixels <- bcrSApixels[bcrSApixels$polyID == 8, ]
+      ## rename columns for easier reference
+      names(bcrSApixels) <- c ("bcrID", "pixelID", "pixelGroup")
 
 
+      ##merge both DT to have the BCR id in the cohortData
 
+      pixelCohortData <- LandR::addNoPixel2CohortData(cohortData,
+                                                      pixelGroupMap,
+                                                      doAssertion = getOption("LandR.assertions", TRUE))
 
-      cohortDataShort <- cohortData[cohortData$pixelGroup %in% bcr6pixels$pixelGroupMap]
+      ##merge both DT to have the BCR id in the cohortData
+      #bcrpixelCohortData<- merge(pixelCohortData, bcrMBpixels, by = "pixelGroup")
+      bcrCohortData<- merge(pixelCohortData, bcrSApixels, by = "pixelGroup")
 
-
-      ## Add the pixel number to the cohortData
-      pixelCohortDataShort <- LandR::addPixels2CohortData(cohortDataShort,
-                                                          sim$pixelGroupMap,
-                                                          doAssertion = getOption("LandR.assertions", TRUE))
-      ## Create leading species column as the species with the highest B
-      vegTypeTable <- LandR::vegTypeGenerator(pixelCohortDataShort, vegLeadingProportion = 0,
+      ## Add vegetation type column to the bcr cohortData table
+      vegTypeTable <- LandR::vegTypeGenerator(bcrCohortData, vegLeadingProportion = 0.8,
                                               mixedType = 2, sppEquiv = sim$sppEquiv,
                                               sppEquivCol = sim$sppEquivCol, pixelGroupColName = "pixelGroup")
+
 
       ## subset the pixelCohortData and create a new column with the sum of Biomass(B) & relB
       ## per pixelGroup and RelB per pixelGroup & speciesCode
@@ -131,46 +136,102 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       }
 
       ## subset to a smaller DT
-      vegTypes <- unique(vegTypeTable[B > 0, .(pixelGroup,leading, speciesCode, relB, sumB)])
+      vegTypes <- unique(vegTypeTable[B > 0, .(pixelGroup,leading, speciesCode, bcrID, relB, sumB)])
 
-      DT <- data.table::copy(vegTypes)
-      data.table::setkeyv(DT, cols = "pixelGroup")
-browser()
-      if(P(sim)$studyAreaName == "bcr6ABBC") {
+      #DT <- data.table::copy(vegTypes)
+      data.table::setkeyv(vegTypes, cols = "pixelGroup")
+
+      ##subset cohortData for an specific bcr
+      bcrSelect <- sim$bcr
+      VegTypes<- vegTypes[vegTypes$bcrID %in% bcrSelect, ]
+
+      ##subset pixelGroupMap for an specific bcr
+      ## get pixelGroup per bcr polygon
+      sim$studyArea <-st_as_sf(sim$studyArea)
+      bcrPixelGroupRas <- fasterize(sim$studyArea, sim$pixelGroupMap, field = "BCR")
+
+      bcrSelectSA <- sim$studyArea[sim$studyArea$BCR %in% bcrSelect, ]
+      subsetpixelGroupMapRas <- crop(sim$pixelGroupMap, bcrSelectSA)
+      bcrPixelGroupRas <- mask(subsetpixelGroupMapRas, mask = bcrSelectSA)
+
+
+      if (grepl("AB", P(sim)$studyArea)){
+          if(grepl("6", P(sim)$bcr)){
       vegTypes[, vegClass:= convertToVegType(.SD, pureCutoff = 0.8,
-                                             deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
+                                             deciSp = c("Popu_tre", "Popu_bal", "Betu_pap"),
                                              coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
-               by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
-      } else if (P(sim)$studyAreaName == "bcrMB"){ # TODO: change to BCR6 MB)
-        vegTypes[, vegClass := convertToVegTypeBCR6MBSK(.SD, pureCutoff =0.8,
-                                                        deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
-                                                        coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las")),
-                 by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
-      }
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading")]
+          }
+      } else if (grepl ("BC", P(sim)$studyArea)){
+        if(grepl("4", P(sim)$bcr)){
+          vegTypes[, vegClass:= convertToVegTypeBCR4(.SD, pureCutoff = 0.8,
+                                                     deciSp = c("Popu_tre", "Popu_bal", "Betu_pap"),
+                                                     coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las"),
+                                                     wetland = c("Pinu_ban", "Pinu_con")),
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading", "bcrID")]
 
+        } else if (grepl ("6", P(sim)$bcr)){
+          vegTypes[, vegClass:= convertToVegTypeBCR6MBSK(.SD, pureCutoff = 0.8,
+                                                         deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
+                                                         coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las"),
+                                                         wetland = c("Pinu_ban", "Pinu_con")),
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading", "bcrID")]
+          }
+      }else if (P(sim)$studyArea == "MB" || P(sim)$studyArea == "SK"){
+        if(grepl("6", P(sim)$bcr)){
+          vegTypes[, vegClass:= convertToVegTypeBCR6MBSK(.SD, pureCutoff = 0.8,
+                                                         deciSp = c("Popu_tre", "Popu_bal","Betu_pap"),
+                                                         coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las"),
+                                                         wetland = c("Pinu_ban", "Pinu_con")),
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading", "bcrID")]
+        }else if (grepl ("7", P(sim)$bcr)){
+          vegTypes[, vegClass:= convertToVegTypeBCR7(.SD, pureCutoff = 0.8,
+                                                     deciSp = c("Popu_tre", "Popu_bal", "Betu_pap"),
+                                                     coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las"),
+                                                     wetland  = c("Pinu_mar", "Lari_lar")),
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading", "bcrID")]
+        } else if (grepl ("8", P(sim)$bcr)){
+          vegTypes[, vegClass:= convertToVegTypeBCR8(.SD, pureCutoff = 0.8,
+                                                     deciSp = c("Popu_tre", "Popu_bal", "Betu_pap"),
+                                                     coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las"),
+                                                     wetland  = c("Pinu_mar", "Lari_lar")),
+                   by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading", "bcrID")]
+
+        }
+        }else if (P(sim)$studyArea == "NT" || P(sim)$studyArea == "NU"){
+          if (grepl("4", P(sim)$bcr)){
+            vegTypes[, vegClass:= convertToVegTypeBCR4(.SD, pureCutoff = 0.8,
+                                                       deciSp = c("Popu_tre", "Popu_bal", "Betu_pap"),
+                                                       coniSp = c("Pinu_ban", "Pinu_con", "Abie_bal", "Abie_las"),
+                                                       wetland = c("Pinu_ban", "Pinu_con")),
+                     by = pixelGroup, .SDcols = c("speciesCode", "relB", "leading", "bcrID")]
+
+          }
+        }
       vegTypes$vegClass <- as.factor(vegTypes$vegClass)
 
       vegTypesCD <- vegTypes[, list(vegType = unique(vegClass)), by = "pixelGroup"]
 
+
       vegTypesRas <- SpaDES.tools::rasterizeReduced(reduced = vegTypesCD,
-                                                    fullRaster = sim$pixelGroupMap,
-                                                    mapcode = "pixelGroup", newRasterCols ="vegType")
+                                      fullRaster = sim$pixelGroupMap,
+                                      mapcode = "pixelGroup", newRasterCols ="vegType")
 
       sim$vegTypesRas <- vegTypesRas
-      browser()
 
+
+      ######NON FORESTED PIXELS#########
       nonForesReclassTB <- Cache(prepInputs, url = paste0("https://drive.google.com/file/",
                                                           "d/17IGN5vphimjWjIfyF7XLkUeD-ze",
                                                           "Kruc1/view?usp=sharing"),
                                  destinationPath = Paths$inputPath,
                                  fun = "data.table::fread",
-                                 userTags = "ABnonForest_LCC05")
+                                 userTags = "WBnonForest_LCC05")
 
       reclassMatrix <- usefulFuns::makeReclassifyMatrix(table = nonForesReclassTB,
                                                         originalCol = "LCC05_Class",
                                                         reclassifiedTo = "nonForest_Class")
-      nonForestRas <- raster::reclassify(x = sim$rstLCC, rcl = reclassMatrix[, -1])
-      sim$nonForestRas <- nonForestRas
+      nonForestRas <- raster::reclassify(x = rstLCC, rcl = reclassMatrix[, -1])
 
 
 
@@ -179,25 +240,25 @@ browser()
 
       ## create a new  RasterLayer of Age reclassified
       ageRas <- SpaDES.tools::rasterizeReduced(reduced = newAgeCD,
-                                               fullRaster = sim$pixelGroupMap,
-                                               mapcode = "pixelGroup", newRasterCols = "ageMax")
-
+                                 fullRaster = sim$pixelGroupMap,
+                                 mapcode = "pixelGroup", newRasterCols = "ageMax")
+      browser()
       sim$ageRas <- ageRas
 
-      return(list(sim$vegTypesRas, sim$nonForestRas,
+      return(list(sim$vegTypesRas,sim$nonForestRas,
                   sim$ageRas))
 
-      sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
-    },
+   sim <- scheduleEvent(sim, time(sim) + P(sim)$reclassTime, "vegReclass_WBI", "reclass")
+},
 
-    # plot = {
+   # plot = {
     # Plot(sim$vegTypeMap) ##I don't think this is necessary ASK STEVE
 
-    #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
+   #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "vegReclass_WBI", "plot")
     # },
-    warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
+  warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
                   "\' in module \'", current(sim)[1, "moduleName", with = FALSE], "\'", sep = ""))
-  )
+)
   return(invisible(sim))
 }
 
@@ -213,9 +274,9 @@ browser()
   #                          destinationPath = getPaths()$inputPath,
   #                          filename2 = "studyArea", overwrite = TRUE)
   # }
-  # if(!suppliedElsewhere("rasterToMatch", sim)){
-  #   message("rasterToMatch not supplied. Generating from LCC05")
-  #   sim$rasterToMatch <- Cache(LandR::prepInputsLCC,
+  # if(!suppliedElsewhere("pixelGroupMap", sim)){
+  #   message("pixelGrouMap not supplied. Please provide one")
+  #   sim$pixelGroupMap <- Cache(LandR::prepInputsLCC,
   #                              year = 2005,
   #                              destinationPath = Paths$inputPath,
   #                              studyArea = sim$studyArea,
@@ -224,3 +285,5 @@ browser()
 
   return(invisible(sim))
 }
+
+
