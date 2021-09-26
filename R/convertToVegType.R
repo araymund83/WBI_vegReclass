@@ -37,7 +37,7 @@ convertToVegType <- function(DT, pureCutoff = 0.8,
   } else if (.sumRelBs(deciSp, DT) < 0.2) {
     "ConMix"
   } else if ((DT$leading %in% c("Popu_tre", "Popu_bal", "Betu_pap")) &&
-             .sumRelBs(c("Pinu_ban", "Lari_lar", "Pice_mar", "Pice_gla"), DT) >= zeroCutoff) { # I changed the value from 0.2 + added Pice_gla
+             .sumRelBs(c("Pinu_ban", "Lari_lar", "Pice_mar", "Pice_gla"), DT) >= zeroCutoff) {
     "DecWet"
   } else
     ## just in case there are any not covered
@@ -50,3 +50,5 @@ convertToVegType <- function(DT, pureCutoff = 0.8,
 .sumRelBs <- function(sppToMatch, DT) {
   DT[speciesCode %in% sppToMatch, relB] %>% sum()
 }
+
+

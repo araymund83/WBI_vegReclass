@@ -40,11 +40,8 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events."),
-    # defineParameter("studyAreaName", "character", "bcr6BC", NA, NA,
-    #                 paste("study area name for WB project, options are: bcr6BC, bcr6AB",
-    #                       "bcr6SK,YK, bcr6NWT,bcr6MB")),
     defineParameter("studyArea", "SpatialPolygonsDataFrame", "BC", NA, NA,
-                    paste("study area shapefile for each of the provinces in WB. Options are: BC, AB",
+                    paste("study area reporting shapefile for each of the provinces in WB. Options are: BC, AB",
                           "SK", "MB", "NT", "NU", "YU")),
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
@@ -56,17 +53,17 @@ defineModule(sim, list(
                  desc = paste("Initial community table, created from available biomass (g/m2"),
                              ("age and species cover data, as well as ecozonation information"),
                              ("Columns: B, pixelGroup, speciesCode")),
-    # expectsInput("rstLCC", "RasterLayer",
-    #              desc = paste("Initial conditions from LCC 2005 ",
-    #                           "XXXXX")),
-    expectsInput("sppEquiv", "data.table",
+    expectsInput("sppEquivCol", "data.table",
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
     expectsInput("sppEquiv", "data.table",
                  desc = "The column in sim$speciesEquivalency data.table to use as a naming convention" ),
     expectsInput("studyArea", objectClass = "SpatialPolygonsDataFrame",
                   desc = "study area used for REPORTING. This shapefile is created in the WBI preamble module"),
     expectsInput("pixelGroupMap", "RasterLayer",
-                 desc = "Initial community map that has mapcodes match initial community table")
+                 desc = "Initial community map that has mapcodes match initial community table"),
+    expectsInput("rstLCC", "RasterLayer",
+                 desc = "Initial Land Cover 2005 classes")
+
     ),
 
   outputObjects = bindrows(
@@ -88,6 +85,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
     eventType,
     init = {
       # schedule future event(s)
+      browser()
       sim <- scheduleEvent(sim, P(sim)$reclassTime, "WBI_vegReclass", "reclass")
       #sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "WBI_vegReclass", "plot")
       #sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "WBI_vegReclass", "save")
@@ -105,7 +103,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       levels(bcrSApixels$ID) <- levels(sim$studyArea$BCR)
 
       ## rename columns for easier reference
-      names(bcrSApixels) <- c ("bcrID", "pixelID", "pixelGroup")
+      names(bcrSApixels) <- c("bcrID", "pixelID", "pixelGroup")
 
 
       ##merge both DT to have the BCR id in the cohortData
@@ -151,8 +149,8 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       bcrPixelGroupRas <- fasterize(sim$studyArea, sim$pixelGroupMap, field = "BCR")
 
       bcrSelectSA <- sim$studyArea[sim$studyArea$BCR %in% bcrSelect, ]
-      subsetpixelGroupMapRas <- crop(sim$pixelGroupMap, bcrSelectSA)
-      bcrPixelGroupRas <- mask(subsetpixelGroupMapRas, mask = bcrSelectSA)
+      subsetpixelGroupMapRas <- crop(sim$pixelGroupMap, bcrSelectSA)  ## TODO:use Postprocess
+      subsetPixelGroupMask <- mask(subsetpixelGroupMapRas, mask = bcrSelectSA)
 
 
       if (grepl("AB", P(sim)$studyArea)){
@@ -221,22 +219,31 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
 
 
       ######NON FORESTED PIXELS#########
-      nonForesReclassTB <- Cache(prepInputs, url = paste0("https://drive.google.com/file/",
-                                                          "d/17IGN5vphimjWjIfyF7XLkUeD-ze",
-                                                          "Kruc1/view?usp=sharing"),
-                                 destinationPath = Paths$inputPath,
-                                 fun = "data.table::fread",
-                                 userTags = "WBnonForest_LCC05")
 
-      reclassMatrix <- usefulFuns::makeReclassifyMatrix(table = nonForesReclassTB,
-                                                        originalCol = "LCC05_Class",
-                                                        reclassifiedTo = "nonForest_Class")
-      nonForestRas <- raster::reclassify(x = rstLCC, rcl = reclassMatrix[, -1])
+      pixelCohortData <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
+      #nonForestPix <- setdiff(pixelCohortData2$pixelIndex, which(!is.na(pixelGroupMap[])))
+      #nonForestPix <- setdiff(which(!is.na(pixelGroupMap[])), pixelCohortData2$pixelIndex)
+
+      sim$nonForestPix <- setdiff(1:ncell(sim$pixelGroupMap), sim$pixelCohortData$pixelIndex)
+      sim$nonForestLCC <- sim$rstLCC[nonForestPix]
+      nonForestLCC <- as.matrix(nonForestLCC)
+
+      # nonForesReclassTB <- Cache(prepInputs, url = paste0("https://drive.google.com/file/",
+      #                                                     "d/17IGN5vphimjWjIfyF7XLkUeD-ze",
+      #                                                     "Kruc1/view?usp=sharing"),
+      #                            destinationPath = Paths$inputPath,
+      #                            fun = "data.table::fread",
+      #                            userTags = "WBnonForest_LCC05")
+      #
+      # reclassMatrix <- usefulFuns::makeReclassifyMatrix(table = nonForesReclassTB,
+      #                                                   originalCol = "LCC05_Class",
+      #                                                   reclassifiedTo = "nonForest_Class")
+      # nonForestRas <- raster::reclassify(x = rstLCC, rcl = reclassMatrix[, -1])
 
 
 
       ##subset the pixelCohortData and create a new column with the max age per pixelGroup
-      newAgeCD <- vegTypeTable[, list(ageMax = max(age)), by = "pixelGroup"]  ## TODO: BIOMASS WEIGHTED MEAN ?
+      newAgeCD <- vegTypeTable[, list(ageMax = max(age)), by = "pixelGroup"]
 
       ## create a new  RasterLayer of Age reclassified
       ageRas <- SpaDES.tools::rasterizeReduced(reduced = newAgeCD,

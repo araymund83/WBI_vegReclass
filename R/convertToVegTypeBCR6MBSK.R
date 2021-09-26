@@ -19,7 +19,7 @@ convertToVegTypeBCR6MBSK <- function(DT, pureCutoff = 0.8,
             .sumRelBs("Lari_lar", DT)  >= pureCutoff){
     " For Wetland"
     ##Forested Wetland: black spruce and larch species component is 80% or more
-    ##TODO: ADD Other hardwoods : Rarer hardwoods cuch as green ash, Manitoba maple, or white elm comprise 20% or more.
+    ##TODO: ADD Other hardwoods : Rarer hardwoods such as green ash, Manitoba maple, or white elm comprise 20% or more.
   } else
     ## just in case there are any not covered
     NA_character_
