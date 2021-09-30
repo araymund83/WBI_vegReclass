@@ -15,7 +15,7 @@ convertToVegTypeBCR6MBSK <- function(DT, pureCutoff = 0.8,
              .sumRelBs(coniSp, DT) < pureCutoff){
     "Mixed"
     ##Coniferous/deciduos mix : mixed stands where neither deciduous or coniferous componente is 80% or more
-  }else if (.sumRelBs("Pice_mar", DT) &&
+  } else if (.sumRelBs("Pice_mar", DT) &&
             .sumRelBs("Lari_lar", DT)  >= pureCutoff){
     " For Wetland"
     ##Forested Wetland: black spruce and larch species component is 80% or more
