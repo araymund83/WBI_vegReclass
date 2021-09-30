@@ -235,9 +235,9 @@ browser()
       ##setup all values to 0
       templateRas[nonForestPixLCCDT2$pixelIndex]<- 0
       templateRas[nonForestPixLCCDT2$pixelIndex] <- 1
-      templateRas[nonForestPixLCCDT2$pixelIndex] <- nonForestPixLCCDT$nonForest_Class
+
       ## assign nonForested reclassified values
-     # templateRas[nonForestLCCDT$pixelIndex] <- nonForestPixLCCDT$nonForest_Class
+      templateRas[nonForestPixLCCDT2$pixelIndex] <- nonForestPixLCCDT$nonForest_Class
       ##crop & mask the raster to the BCR selected area.
       nonForestRas <- postProcess( templateRas, studyArea = bcrSelectSA)
       ##change the legend
