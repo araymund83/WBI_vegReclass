@@ -106,16 +106,22 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
 
       ## rename columns for easier reference
       names(bcrSApixels) <- c("bcrID", "pixelID", "pixelGroup")
+      bcrSApixels <- na.omit(bcrSApixels)
 
       ##merge both DT to have the BCR id in the cohortData
+      browser()
 
       pixelCohortData <- LandR::addNoPixel2CohortData(sim$cohortData,
                                                       sim$pixelGroupMap,
                                                       doAssertion = getOption("LandR.assertions", TRUE))
+      pixelCohortData2 <- LandR::addPixels2CohortData(sim$cohortData,
+                                                      sim$pixelGroupMap,
+                                                      cohortDefinitionCols = c('pixelGroup', 'age', 'speciesCode'),
+                                                      doAssertion = getOption('LandR.assertions', TRUE))
 
       ##merge both DT to have the BCR id in the cohortData
-      #bcrpixelCohortData<- merge(pixelCohortData, bcrMBpixels, by = "pixelGroup")
       bcrCohortData<- merge(pixelCohortData, bcrSApixels, by = "pixelGroup")
+
 
       ## Add vegetation type column to the bcr cohortData table
       vegTypeTable <- LandR::vegTypeGenerator(bcrCohortData, vegLeadingProportion = 0.8,
