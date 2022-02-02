@@ -109,25 +109,19 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       bcrSApixels <- na.omit(bcrSApixels)
 
       ##merge both DT to have the BCR id in the cohortData
-      browser()
-
       pixelCohortData <- LandR::addNoPixel2CohortData(sim$cohortData,
                                                       sim$pixelGroupMap,
-                                                      doAssertion = getOption("LandR.assertions", TRUE))
-      pixelCohortData2 <- LandR::addPixels2CohortData(sim$cohortData,
-                                                      sim$pixelGroupMap,
-                                                      cohortDefinitionCols = c('pixelGroup', 'age', 'speciesCode'),
                                                       doAssertion = getOption('LandR.assertions', TRUE))
 
       ##merge both DT to have the BCR id in the cohortData
-      bcrCohortData<- merge(pixelCohortData, bcrSApixels, by = "pixelGroup")
-
+      bcrCohortData<- merge(bcrSApixels, pixelCohortData, by = 'pixelGroup', all = TRUE)
+      bcrCohortData <- as.data.table(bcrCohortData)
 
       ## Add vegetation type column to the bcr cohortData table
       vegTypeTable <- LandR::vegTypeGenerator(bcrCohortData, vegLeadingProportion = 0.8,
                                               mixedType = 2, sppEquiv = sim$sppEquiv,
-                                              sppEquivCol = sim$sppEquivCol, pixelGroupColName = "pixelGroup")
-
+                                              sppEquivCol = sim$sppEquivCol,
+                                              pixelGroupColName = 'pixelGroup')
 
       ## subset the pixelCohortData and create a new column with the sum of Biomass(B) & relB
       ## per pixelGroup and RelB per pixelGroup & speciesCode
@@ -147,9 +141,10 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       data.table::setkeyv(vegTypes, cols = "pixelGroup")
 
       ##subset cohortData for an specific bcr
-      bcrSelect <- as.factor(P(sim)$bcr)
-      vegTypes <- vegTypes[vegTypes$bcrID == bcrSelect]
-      #vegTypes[bcrID %in% bcrSelect ]
+      bcrSelect <- P(sim)$bcr
+
+     # vegTypes <- vegTypes[vegTypes$bcrID == bcrSelect]
+      vegTypes <- vegTypes[bcrID %in% bcrSelect ]
 
       ##subset pixelGroupMap for an specific bcr
       ## get pixelGroup per bcr polygon
@@ -157,10 +152,7 @@ doEvent.WBI_vegReclass = function(sim, eventTime, eventType) {
       bcrPixelGroupRas <- fasterize::fasterize(sim$studyArea, sim$pixelGroupMap, field = "BCR")
 
       bcrSelectSA <- sim$studyArea[sim$studyArea$BCR %in% bcrSelect, ]
-      subsetpixelGroupMapRas <- postProcess( bcrPixelGroupRas, studyArea = bcrSelectSA)
-      # subsetpixelGroupMapRas <- crop(sim$pixelGroupMap, bcrSelectSA)  ## TODO:use Postprocess
-      # subsetPixelGroupMask <- mask(subsetpixelGroupMapRas, mask = bcrSelectSA)
-browser()
+
       ## reclass rules per studyArea and
       if (P(sim)$studyAreaName == "AB" || P(sim)$studyAreaName == "BC"
           && P(sim)$bcr == 6){
@@ -216,15 +208,15 @@ browser()
                                                     mapcode = "pixelGroup", newRasterCols ="vegType")
 
       sim$vegTypesRas <- vegTypesRas
-
       ######NON FORESTED PIXELS#########
-
       pixelCohortData2 <- LandR::addPixels2CohortData(sim$cohortData, sim$pixelGroupMap)
       ## get the non forested pixelIndices
-      sim$nonForestPix <- setdiff(1:ncell(sim$pixelGroupMap), sim$pixelCohortData2$pixelIndex)
-      ## look up for their correspondent value in LCC05
-      nonForestLCC <- sim$rstLCC[sim$nonForestPix]
-      nonForestLCCDT <- data.table (pixelIndex = 1:length(nonForestLCC), LCC05_Class = nonForestLCC)
+      nonForestLCC <- data.table(pixelID= 1:ncell(sim$rstLCC),
+                                 pg = getValues(sim$pixelGroupMap),
+                                 LCC05_Class = getValues(sim$rstLCC))
+
+      nonForestLCC <- nonForestLCC[is.na(pg) & !is.na(LCC05_Class)]
+
       ## This table has the non forested values and their description
       # nonForestReclassTB <- Cache(prepInputs, url = paste0("https://drive.google.com/file/",
       #                                                     "d/17IGN5vphimjWjIfyF7XLkUeD-ze",
@@ -232,21 +224,25 @@ browser()
       #                            destinationPath = Paths$inputPath,
       #                            fun = "data.table::fread",
       #                            userTags = "WBnonForest_LCC05")
+
+
       nonForestReclassTB <- fread(file.path("inputs", "nonForest_reclass.csv"))
 
+      setkey(nonForestLCC, LCC05_Class)
+      setkey(nonForestReclassTB, LCC05_Class)
+
       ## join both tables based on the LCC05 value
-      nonForestPixLCCDT2 <- nonForestLCCDT[nonForestReclassTB, on = "LCC05_Class"]
+      nonForestPixLCC<-merge(nonForestLCC, nonForestReclassTB)
       ##create an empty raster with the same number of pixels  than pixelGroupMap
       templateRas <- raster(sim$pixelGroupMap)
-      ##setup all values to 0
-      templateRas[nonForestPixLCCDT2$pixelIndex]<- 0
-      templateRas[nonForestPixLCCDT2$pixelIndex] <- 1
-
+      ##setup all values to NA
+      templateRas[]<- NA
       ## assign nonForested reclassified values
-      templateRas[nonForestPixLCCDT2$pixelIndex] <- nonForestPixLCCDT$nonForest_Class
+      templateRas[nonForestPixLCC$pixelID]<- nonForestPixLCC$nonForest_Class
+
+      sim$nonForestRas <- templateRas
       ##crop & mask the raster to the BCR selected area.
       nonForestRas <- postProcess( templateRas, studyArea = bcrSelectSA)
-      ##change the legend
 
       sim$nonForestRas <- nonForestRas
 
